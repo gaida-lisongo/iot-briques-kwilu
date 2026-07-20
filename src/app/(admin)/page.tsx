@@ -7,6 +7,7 @@ import StatisticsChart from "@/components/ecommerce/StatisticsChart";
 import RecentOrders from "@/components/ecommerce/RecentOrders";
 import DemographicCard from "@/components/ecommerce/DemographicCard";
 import { SensorMetrics } from "@/components/metrics";
+import MonthlyMetricsChart from "@/components/metrics/MonthlyMetricsChart";
 
 export const metadata: Metadata = {
   title:
@@ -18,7 +19,7 @@ export default function Ecommerce() {
   return (
     <div className="grid grid-cols-12 gap-4 md:gap-6">
       <div className="col-span-12 space-y-6 xl:col-span-7">
-        <MonthlySalesChart />
+        <MonthlyMetricsChart />
       </div>
 
       <div className="col-span-12 xl:col-span-5">

@@ -77,6 +77,7 @@ export const MqttProvider = ({ children }: { children: React.ReactNode }) => {
     const client: MqttClient = createMqttConnection(
       config,
       async (newPayload) => {
+        console.log("Data From ESP32 :", newPayload)
         const enriched = {
           ...newPayload,
           timestamp: new Date().toISOString(),

@@ -9,7 +9,6 @@ import DemographicCard from "@/components/ecommerce/DemographicCard";
 import { SensorMetrics } from "@/components/metrics";
 import MonthlyMetricsChart from "@/components/metrics/MonthlyMetricsChart";
 import RealtimeSensorTable from "@/components/metrics/RealtimeSensorTable";
-
 export const metadata: Metadata = {
   title:
     "Next.js E-commerce Dashboard | TailAdmin - Next.js Dashboard Template",

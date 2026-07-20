@@ -1,17 +1,32 @@
 // context/MqttContext.tsx
-'use client';
+"use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { MqttClient } from 'mqtt';
-import { SensorPayload } from '@/types/mqtt';
-import { createMqttConnection, disconnectMqttClient } from '@/lib/utils/mqtt';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { MqttClient } from "mqtt";
+import { SensorPayload } from "@/types/mqtt";
+import {
+  createMqttConnection,
+  disconnectMqttClient,
+} from "@/lib/utils/mqtt";
 
 interface MqttContextType {
-  data: SensorPayload | null;        // La dernière mesure reçue en direct
-  history: SensorPayload[];          // Le tableau de toutes les mesures (anciennes + nouvelles)
-  isConnected: boolean;               // État de la connexion MQTT WebSocket
-  isLoadingHistory: boolean;          // État de chargement initial des données Redis
-  refreshHistory: () => Promise<void>;// Permet de recharger l'historique manuellement
+  data: SensorPayload | null;
+  history: SensorPayload[];
+  isConnected: boolean;
+  isLoadingHistory: boolean;
+  refreshHistory: () => Promise<void>;
+}
+
+interface RedisHistoryResponse {
+  success: boolean;
+  data?: SensorPayload[];
+  error?: string;
 }
 
 const MqttContext = createContext<MqttContextType>({
@@ -19,86 +34,127 @@ const MqttContext = createContext<MqttContextType>({
   history: [],
   isConnected: false,
   isLoadingHistory: true,
-  refreshHistory: async () => {},
+  refreshHistory: async () => undefined,
 });
 
-export const MqttProvider = ({ children }: { children: React.ReactNode }) => {
+export const MqttProvider = ({
+  children,
+}: {
+  children: React.ReactNode;
+}) => {
   const [data, setData] = useState<SensorPayload | null>(null);
   const [history, setHistory] = useState<SensorPayload[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
-  // 1. Fonction pour charger les anciennes données depuis /api/redis (GET)
+  /**
+   * SOURCE UNIQUE DE LECTURE
+   *
+   * Tous les composants lisent history.
+   * history est remplacé uniquement par la réponse GET /api/redis.
+   */
   const fetchHistory = useCallback(async () => {
-    try {
-      const response = await fetch('/api/redis');
-      const result = await response.json();
+    setIsLoadingHistory(true);
 
-      if (result.success && Array.isArray(result.data)) {
-        setHistory(result.data);
-        if (result.data.length > 0) {
-          setData(result.data[0]); // Définit la plus récente comme donnée actuelle
-        }
+    try {
+      const response = await fetch("/api/redis", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const result = (await response.json()) as RedisHistoryResponse;
+
+      if (!response.ok || !result.success || !Array.isArray(result.data)) {
+        throw new Error(
+          result.error ?? "Réponse invalide de l’endpoint Redis."
+        );
       }
+
+      setHistory(result.data);
+      setData(result.data[0] ?? null);
     } catch (error) {
-      console.error('[MqttProvider] Erreur lors du chargement de l\'historique :', error);
+      console.error(
+        "[MqttProvider] Erreur de lecture GET /api/redis :",
+        error
+      );
     } finally {
       setIsLoadingHistory(false);
     }
   }, []);
 
-  // 2. Fonction pour sauvegarder la nouvelle donnée via /api/redis (POST)
-  const persistMeasure = async (payload: SensorPayload) => {
-    try {
-      await fetch('/api/redis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+  /**
+   * Écriture d'une nouvelle mesure.
+   * Après le POST, on recharge immédiatement GET /api/redis.
+   * Ainsi, le state React ne devient jamais une seconde source de vérité.
+   */
+  const persistMeasure = useCallback(
+    async (payload: SensorPayload) => {
+      const response = await fetch("/api/redis", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify(payload),
       });
-    } catch (error) {
-      console.error('[MqttProvider] Erreur lors de la sauvegarde de la mesure :', error);
-    }
-  };
 
-  // Chargement initial au montage du composant
+      const result = (await response.json()) as {
+        success: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.error ?? "Impossible de sauvegarder la mesure dans Redis."
+        );
+      }
+
+      await fetchHistory();
+    },
+    [fetchHistory]
+  );
+
   useEffect(() => {
-    fetchHistory();
+    void fetchHistory();
   }, [fetchHistory]);
 
-  // Initialisation du socket MQTT
   useEffect(() => {
     const config = {
-      url: process.env.NEXT_PUBLIC_MQTT_URL || '',
+      url: process.env.NEXT_PUBLIC_MQTT_URL || "",
       username: process.env.NEXT_PUBLIC_MQTT_USER,
       password: process.env.NEXT_PUBLIC_MQTT_PASSWORD,
-      topic: 'esp32/dht22/data',
+      topic: "esp32/dht22/data",
     };
+
+    if (!config.url) {
+      console.warn(
+        "[MqttProvider] NEXT_PUBLIC_MQTT_URL est absent : connexion MQTT ignorée."
+      );
+      return;
+    }
 
     const client: MqttClient = createMqttConnection(
       config,
       async (newPayload) => {
-        console.log("Data From ESP32 :", newPayload)
-        const enriched = {
-          ...newPayload,
-          timestamp: new Date().toISOString(),
-        };
-
-        // Met à jour la dernière donnée reçue
-        setData(enriched);
-
-        // Ajoute en tête du tableau local
-        setHistory((prev) => [enriched, ...prev.slice(0, 49)]);
-
-        // Persiste sur Vercel/Redis
-        await persistMeasure(newPayload);
+        try {
+          await persistMeasure(newPayload);
+        } catch (error) {
+          console.error(
+            "[MqttProvider] Erreur de persistance MQTT -> Redis :",
+            error
+          );
+        }
       },
-      (status) => setIsConnected(status)
+      setIsConnected
     );
 
     return () => {
       disconnectMqttClient(client);
     };
-  }, []);
+  }, [persistMeasure]);
 
   return (
     <MqttContext.Provider
@@ -115,5 +171,4 @@ export const MqttProvider = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-// Hook personnalisé pour consommer le contexte dans les composants clients
 export const useMqtt = () => useContext(MqttContext);

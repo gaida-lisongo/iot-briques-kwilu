@@ -4,8 +4,9 @@ import { ApexOptions } from "apexcharts";
 import dynamic from "next/dynamic";
 import { MoreDotIcon } from "@/icons";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
-import { useState, useEffect } from "react";
 import { Dropdown } from "../ui/dropdown/Dropdown";
+import { useMemo, useState } from "react";
+import { useMqtt } from "@/context/MqttContext";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
   ssr: false,
@@ -17,37 +18,78 @@ interface MonthlyData {
   month: string;
   temperature: number | null;
   humidity: number | null;
+  count: number;
 }
 
+const MONTH_LABELS = [
+  "Jan",
+  "Fév",
+  "Mar",
+  "Avr",
+  "Mai",
+  "Juin",
+  "Juil",
+  "Aoû",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Déc",
+];
+
 export default function MonthlyMetricsChart() {
+  const { history, isLoadingHistory } = useMqtt();
   const [filter, setFilter] = useState<MetricFilter>("ALL");
   const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState<boolean>(true);
-  
-  // Données mensuelles initialisées à vide
-  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
 
-  // Récupération des données moyennes depuis l'API Redis
-  useEffect(() => {
-    async function fetchRedisMetrics() {
-      try {
-        setLoading(true);
-        const res = await fetch("/api/metrics/monthly");
-        if (res.ok) {
-          const data = await res.json();
-          setMonthlyData(data);
-        }
-      } catch (error) {
-        console.error("Erreur lors de la récupération depuis Redis:", error);
-      } finally {
-        setLoading(false);
+  const currentYear = new Date().getFullYear();
+
+  /**
+   * Source unique :
+   * history est alimenté exclusivement par GET /api/redis dans MqttContext.
+   * Aucun endpoint /api/metrics/monthly n'est utilisé.
+   */
+  const monthlyData = useMemo<MonthlyData[]>(() => {
+    const buckets = Array.from({ length: 12 }, (_, monthIndex) => ({
+      month: MONTH_LABELS[monthIndex],
+      tempSum: 0,
+      humSum: 0,
+      tempCount: 0,
+      humCount: 0,
+      count: 0,
+    }));
+
+    for (const reading of history) {
+      if (!reading.timestamp) continue;
+
+      const date = new Date(reading.timestamp);
+      if (Number.isNaN(date.getTime()) || date.getFullYear() !== currentYear) {
+        continue;
+      }
+
+      const bucket = buckets[date.getMonth()];
+      bucket.count += 1;
+
+      if (Number.isFinite(reading.temperature)) {
+        bucket.tempSum += reading.temperature;
+        bucket.tempCount += 1;
+      }
+
+      if (Number.isFinite(reading.humidity)) {
+        bucket.humSum += reading.humidity;
+        bucket.humCount += 1;
       }
     }
 
-    fetchRedisMetrics();
-  }, []);
+    return buckets.map((bucket) => ({
+      month: bucket.month,
+      temperature:
+        bucket.tempCount > 0 ? bucket.tempSum / bucket.tempCount : null,
+      humidity: bucket.humCount > 0 ? bucket.humSum / bucket.humCount : null,
+      count: bucket.count,
+    }));
+  }, [history, currentYear]);
 
-  const toggleDropdown = () => setIsOpen(!isOpen);
+  const toggleDropdown = () => setIsOpen((prev) => !prev);
   const closeDropdown = () => setIsOpen(false);
 
   const handleSelectFilter = (selected: MetricFilter) => {
@@ -55,22 +97,25 @@ export default function MonthlyMetricsChart() {
     closeDropdown();
   };
 
-  // Séries temporelles dynamiques selon le filtre
-  const tempSeries = {
-    name: "Température (°C)",
-    data: monthlyData.map((d) => d.temperature ?? 0),
-    color: "#ff4560", // Rouge/Orange
-  };
+  const series = useMemo(() => {
+    const result = [];
 
-  const humSeries = {
-    name: "Humidité (%)",
-    data: monthlyData.map((d) => d.humidity ?? 0),
-    color: "#008ffb", // Bleu
-  };
+    if (filter === "ALL" || filter === "TEMP") {
+      result.push({
+        name: "Température moyenne (°C)",
+        data: monthlyData.map((item) => item.temperature),
+      });
+    }
 
-  const series = [];
-  if (filter === "ALL" || filter === "TEMP") series.push(tempSeries);
-  if (filter === "ALL" || filter === "HUM") series.push(humSeries);
+    if (filter === "ALL" || filter === "HUM") {
+      result.push({
+        name: "Humidité moyenne (%)",
+        data: monthlyData.map((item) => item.humidity),
+      });
+    }
+
+    return result;
+  }, [filter, monthlyData]);
 
   const options: ApexOptions = {
     chart: {
@@ -78,6 +123,7 @@ export default function MonthlyMetricsChart() {
       type: "area",
       height: 250,
       toolbar: { show: false },
+      animations: { enabled: true },
     },
     stroke: {
       curve: "smooth",
@@ -85,10 +131,7 @@ export default function MonthlyMetricsChart() {
     },
     dataLabels: { enabled: false },
     xaxis: {
-      categories: [
-        "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
-        "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc",
-      ],
+      categories: monthlyData.map((item) => item.month),
       axisBorder: { show: false },
       axisTicks: { show: false },
     },
@@ -102,20 +145,28 @@ export default function MonthlyMetricsChart() {
       filter === "ALL"
         ? [
             {
+              seriesName: "Température moyenne (°C)",
               title: { text: "Température (°C)" },
-              labels: { formatter: (val) => `${val.toFixed(1)} °C` },
+              labels: {
+                formatter: (value) => `${value.toFixed(1)} °C`,
+              },
             },
             {
+              seriesName: "Humidité moyenne (%)",
               opposite: true,
               title: { text: "Humidité (%)" },
-              labels: { formatter: (val) => `${val.toFixed(0)} %` },
+              labels: {
+                formatter: (value) => `${value.toFixed(0)} %`,
+              },
             },
           ]
         : [
             {
               labels: {
-                formatter: (val) =>
-                  filter === "TEMP" ? `${val.toFixed(1)} °C` : `${val.toFixed(0)} %`,
+                formatter: (value) =>
+                  filter === "TEMP"
+                    ? `${value.toFixed(1)} °C`
+                    : `${value.toFixed(0)} %`,
               },
             },
           ],
@@ -131,62 +182,82 @@ export default function MonthlyMetricsChart() {
       },
     },
     tooltip: {
+      shared: true,
+      intersect: false,
       y: {
-        formatter: (val: number) => `${val.toFixed(1)}`,
+        formatter: (value: number, context) => {
+          const seriesName =
+            context.w.config.series?.[context.seriesIndex]?.name ?? "";
+
+          return seriesName.includes("Température")
+            ? `${value.toFixed(1)} °C`
+            : `${value.toFixed(1)} %`;
+        },
       },
     },
+    noData: {
+      text: "Aucune donnée Redis disponible",
+    },
   };
+
+  const totalReadings = monthlyData.reduce(
+    (sum, item) => sum + item.count,
+    0
+  );
 
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white px-5 pt-5 dark:border-gray-800 dark:bg-white/[0.03] sm:px-6 sm:pt-6">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-            Moyennes Mensuelles ({new Date().getFullYear()})
+            Moyennes mensuelles ({currentYear})
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Affichage : {filter === "ALL" ? "Tous" : filter === "TEMP" ? "Température" : "Humidité"}
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {totalReadings} mesure(s) agrégée(s) depuis GET /api/redis
           </p>
         </div>
 
         <div className="relative inline-block">
-          <button onClick={toggleDropdown} className="dropdown-toggle p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5">
+          <button
+            type="button"
+            onClick={toggleDropdown}
+            className="dropdown-toggle rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-white/5"
+            aria-label="Filtrer les métriques"
+          >
             <MoreDotIcon className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" />
           </button>
-          <Dropdown isOpen={isOpen} onClose={closeDropdown} className="w-40 p-2">
-            <DropdownItem
-              onItemClick={() => handleSelectFilter("ALL")}
-              className={`flex w-full font-normal text-left text-gray-500 rounded-lg hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300 ${
-                filter === "ALL" ? "font-semibold text-brand-500 dark:text-white" : ""
-              }`}
-            >
-              Tous
-            </DropdownItem>
-            <DropdownItem
-              onItemClick={() => handleSelectFilter("TEMP")}
-              className={`flex w-full font-normal text-left text-gray-500 rounded-lg hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300 ${
-                filter === "TEMP" ? "font-semibold text-brand-500 dark:text-white" : ""
-              }`}
-            >
-              Température
-            </DropdownItem>
-            <DropdownItem
-              onItemClick={() => handleSelectFilter("HUM")}
-              className={`flex w-full font-normal text-left text-gray-500 rounded-lg hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300 ${
-                filter === "HUM" ? "font-semibold text-brand-500 dark:text-white" : ""
-              }`}
-            >
-              Humidité
-            </DropdownItem>
+
+          <Dropdown
+            isOpen={isOpen}
+            onClose={closeDropdown}
+            className="w-40 p-2"
+          >
+            {(["ALL", "TEMP", "HUM"] as MetricFilter[]).map((item) => (
+              <DropdownItem
+                key={item}
+                onItemClick={() => handleSelectFilter(item)}
+                className={`flex w-full rounded-lg text-left font-normal text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300 ${
+                  filter === item
+                    ? "font-semibold text-brand-500 dark:text-white"
+                    : ""
+                }`}
+              >
+                {item === "ALL"
+                  ? "Tous"
+                  : item === "TEMP"
+                  ? "Température"
+                  : "Humidité"}
+              </DropdownItem>
+            ))}
           </Dropdown>
         </div>
       </div>
 
-      <div className="max-w-full overflow-x-auto custom-scrollbar mt-4">
-        <div className="-ml-5 min-w-[650px] xl:min-w-full pl-2">
-          {loading ? (
+      <div className="custom-scrollbar mt-4 max-w-full overflow-x-auto">
+        <div className="-ml-5 min-w-[650px] pl-2 xl:min-w-full">
+          {isLoadingHistory ? (
             <div className="flex h-[250px] items-center justify-center text-sm text-gray-500">
-              Chargement des données Redis...
+              Chargement depuis Redis...
             </div>
           ) : (
             <ReactApexChart

@@ -194,7 +194,7 @@ const AppHeader: React.FC = () => {
                     Supervision des fours de cuisson
                   </p>
                   <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                    Projet tutoré L3 — Kwilu Briques
+                    Created By ELectro MEcatronique Services
                   </p>
                 </div>
               </div>

@@ -8,6 +8,7 @@ import RecentOrders from "@/components/ecommerce/RecentOrders";
 import DemographicCard from "@/components/ecommerce/DemographicCard";
 import { SensorMetrics } from "@/components/metrics";
 import MonthlyMetricsChart from "@/components/metrics/MonthlyMetricsChart";
+import RealtimeSensorTable from "@/components/metrics/RealtimeSensorTable";
 
 export const metadata: Metadata = {
   title:
@@ -27,7 +28,7 @@ export default function Ecommerce() {
       </div>
 
       <div className="col-span-12">
-        <RecentOrders />
+        <RealtimeSensorTable />
       </div>
     </div>
   );

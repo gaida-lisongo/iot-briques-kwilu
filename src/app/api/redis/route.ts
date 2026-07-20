@@ -6,8 +6,8 @@ import { SensorPayload } from '@/types/mqtt';
 // Initialise le client Redis via les variables d'environnement Vercel / Upstash
 const redis = Redis.fromEnv();
 
-const REDIS_HISTORY_KEY = 'esp32:sensor_history';
-const MAX_HISTORY_ITEMS = 150; // Nombre maximal de mesures à conserver dans l'historique
+const REDIS_HISTORY_KEY = 'esp32_wokwi:sensor_history';
+const MAX_HISTORY_ITEMS = 15000; // Nombre maximal de mesures à conserver dans l'historique
 
 /**
  * GET : Récupère les anciennes mesures stockées dans Redis

@@ -14,7 +14,7 @@ export const SensorMetrics = () => {
 
   // Extraction des valeurs actuelles (ou 0 par défaut)
   const currentTemp = data?.temperature ?? 0;
-  const currentHum = data?.humidity ?? 0;
+  const currentHum = data?.humidite ?? 0;
 
   // Calcul du pourcentage par rapport aux seuils critiques
   const tempRatio = Math.min(Math.round((currentTemp / maxTemp) * 100), 100);

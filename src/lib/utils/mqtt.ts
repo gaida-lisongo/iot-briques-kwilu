@@ -11,7 +11,7 @@ export function parseMqttPayload(message: Buffer | string): SensorPayload | null
     const parsed = JSON.parse(rawString);
 
     // Validation basique de la structure attendue
-    if (typeof parsed.temperature === 'number' && typeof parsed.humidity === 'number') {
+    if (typeof parsed.temperature === 'number' && typeof parsed.humidite === 'number') {
       return parsed as SensorPayload;
     }
     

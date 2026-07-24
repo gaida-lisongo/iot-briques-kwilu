@@ -74,8 +74,8 @@ export default function MonthlyMetricsChart() {
         bucket.tempCount += 1;
       }
 
-      if (Number.isFinite(reading.humidity)) {
-        bucket.humSum += reading.humidity;
+      if (Number.isFinite(reading.humidite)) {
+        bucket.humSum += reading.humidite;
         bucket.humCount += 1;
       }
     }

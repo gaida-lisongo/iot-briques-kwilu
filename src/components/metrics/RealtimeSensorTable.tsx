@@ -101,12 +101,12 @@ function toLocalDateKey(timestamp: string): string | null {
 }
 
 function computeStatus(
-  payload: Pick<SensorPayload, "temperature" | "humidity">,
+  payload: Pick<SensorPayload, "temperature" | "humidite">,
   maxTemp: number,
   maxHum: number
 ): SensorReading["deviceStatus"] {
   const tempRatio = payload.temperature / maxTemp;
-  const humRatio = payload.humidity / maxHum;
+  const humRatio = payload.humidite / maxHum;
 
   if (tempRatio >= 0.9 || humRatio >= 0.9) return "Critique";
   if (tempRatio >= 0.75 || humRatio >= 0.75) return "Attention";
@@ -152,7 +152,7 @@ export default function RealtimeSensorTable() {
             second: "2-digit",
           }),
           temperature: item.temperature,
-          humidity: item.humidity,
+          humidity: item.humidite,
           deviceStatus: computeStatus(item, maxTemp, maxHum),
         };
       })

@@ -2,7 +2,7 @@
 export interface SensorPayload {
   device_id: string;
   temperature: number;
-  humidity: number;
+  humidite: number;
   status: string;
   timestamp?: string;
 }
